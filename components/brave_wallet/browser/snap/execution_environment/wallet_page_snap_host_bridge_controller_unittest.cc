@@ -110,4 +110,11 @@ TEST_F(WalletPageSnapHostBridgeControllerUnitTest, DisconnectUnbinds) {
   EXPECT_FALSE(controller_.IsBound());
 }
 
+TEST_F(WalletPageSnapHostBridgeControllerUnitTest,
+       EnsureBridgeReadyRunsSynchronously) {
+  base::test::TestFuture<void> future;
+  controller_.EnsureBridgeReady(future.GetCallback());
+  EXPECT_TRUE(future.Wait());
+}
+
 }  // namespace brave_wallet
