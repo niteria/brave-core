@@ -3,12 +3,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-#include "chrome/browser/ui/browser_window/public/browser_window_features.h"
+#include "brave/browser/ui/browser_window/internal/brave_browser_window_features.h"
 
 #include "base/containers/flat_map.h"
 #include "base/feature_list.h"
 #include "base/functional/bind.h"
-#include "base/memory/ptr_util.h"
+#include "base/types/to_address.h"
 #include "base/unguessable_token.h"
 #include "brave/browser/ui/brave_browser_window.h"
 #include "brave/browser/ui/focus_mode/focus_mode_controller.h"
@@ -31,6 +31,7 @@
 #include "brave/components/playlist/core/common/buildflags/buildflags.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_group_sync/tab_group_sync_service_factory.h"
+#include "chrome/browser/ui/browser_window/public/browser_window_features.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/tabs/features.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
@@ -68,10 +69,20 @@
 #include "brave/components/ai_chat/core/common/features.h"
 #endif
 
-BrowserWindowFeatures::BrowserWindowFeatures() = default;
-BrowserWindowFeatures::~BrowserWindowFeatures() = default;
+BraveBrowserWindowFeatures::BraveBrowserWindowFeatures(
+    BrowserWindowInterface& browser)
+    : browser_(browser) {}
 
-void BrowserWindowFeatures::Init(BrowserWindowInterface* browser) {
+BraveBrowserWindowFeatures::~BraveBrowserWindowFeatures() = default;
+
+// static
+ui::UserDataFactoryWithOwner<BrowserWindowInterface>&
+BraveBrowserWindowFeatures::GetUserDataFactory() {
+  return BrowserWindowFeatures::GetUserDataFactory();
+}
+
+void BraveBrowserWindowFeatures::Init() {
+  auto* browser = base::to_address(browser_);
   auto* profile = browser->GetProfile();
 
   if (BrowserSupportsFocusMode(browser)) {
@@ -80,15 +91,12 @@ void BrowserWindowFeatures::Init(BrowserWindowInterface* browser) {
             *browser, browser->GetUnownedUserDataHost());
   }
 
-  // VerticalTabController should be constructed in Init() instead of
-  // InitPostBrowserViewConstruction() because it would be referenced by many
-  // views.
+  // Must be after focus_mode_controller_, which it points to. Created in Init()
+  // because many views use it.
   vertical_tab_controller_ =
       GetUserDataFactory().CreateInstance<VerticalTabController>(
           *browser, browser->GetUnownedUserDataHost(), browser->GetType(),
           profile->GetPrefs(), focus_mode_controller_.get());
-
-  BrowserWindowFeatures_ChromiumImpl::Init(browser);
 
 #if BUILDFLAG(ENABLE_BRAVE_REWARDS)
   if (brave_rewards::RewardsServiceFactory::GetForProfile(profile)) {
@@ -120,17 +128,18 @@ void BrowserWindowFeatures::Init(BrowserWindowInterface* browser) {
   }
 }
 
-void BrowserWindowFeatures::InitPostBrowserViewConstruction(
+void BraveBrowserWindowFeatures::InitPostBrowserViewConstruction(
     BrowserView* browser_view) {
+  auto* browser = base::to_address(browser_);
   if (sidebar::CanUseSidebar(browser_view->browser())) {
     sidebar_controller_ =
         GetUserDataFactory().CreateInstance<sidebar::SidebarController>(
-            *browser_, browser_view->browser(), browser_view->GetProfile());
+            *browser, browser_view->browser(), browser_view->GetProfile());
 #if BUILDFLAG(ENABLE_PLAYLIST)
     if (playlist::IsPlaylistAllowed(browser_view->GetProfile()->GetPrefs())) {
       playlist_side_panel_coordinator_ =
           GetUserDataFactory().CreateInstance<PlaylistSidePanelCoordinator>(
-              *browser_, browser_view->browser(), browser_view->GetProfile());
+              *browser, browser_view->browser(), browser_view->GetProfile());
     }
 #endif  // BUILDFLAG(ENABLE_PLAYLIST)
   }
@@ -143,14 +152,14 @@ void BrowserWindowFeatures::InitPostBrowserViewConstruction(
       email_aliases_controller_ =
           GetUserDataFactory()
               .CreateInstance<email_aliases::EmailAliasesController>(
-                  *browser_, browser_view, email_aliases_service);
+                  *browser, browser_view, email_aliases_service);
     }
   }
 #endif
 
 #if BUILDFLAG(ENABLE_BRAVE_VPN)
   brave_vpn_controller_ =
-      GetUserDataFactory().CreateInstance<BraveVPNController>(*browser_,
+      GetUserDataFactory().CreateInstance<BraveVPNController>(*browser,
                                                               browser_view);
 #endif
 
@@ -163,7 +172,7 @@ void BrowserWindowFeatures::InitPostBrowserViewConstruction(
             }));
     screenshot_controller_ =
         GetUserDataFactory().CreateInstance<screenshot::ScreenshotController>(
-            *browser_, browser_->GetUnownedUserDataHost(),
+            *browser, browser->GetUnownedUserDataHost(),
             browser_view->GetProfile(),
             base::BindRepeating(
                 [](BrowserView* bv) -> gfx::NativeWindow {
@@ -176,7 +185,7 @@ void BrowserWindowFeatures::InitPostBrowserViewConstruction(
 #else
   screenshot_controller_ =
       GetUserDataFactory().CreateInstance<screenshot::ScreenshotController>(
-          *browser_, browser_->GetUnownedUserDataHost(),
+          *browser, browser->GetUnownedUserDataHost(),
           browser_view->GetProfile(),
           base::BindRepeating(
               [](BrowserView* bv) -> gfx::NativeWindow {
@@ -187,30 +196,26 @@ void BrowserWindowFeatures::InitPostBrowserViewConstruction(
 #endif
 
   if (base::FeatureList::IsEnabled(features::kWorkspaces) &&
-      browser_->GetType() == BrowserWindowInterface::Type::TYPE_NORMAL) {
+      browser->GetType() == BrowserWindowInterface::Type::TYPE_NORMAL) {
     workspaces_bubble_controller_ =
         GetUserDataFactory().CreateInstance<WorkspacesBubbleController>(
-            *browser_, browser_->GetUnownedUserDataHost());
+            *browser, browser->GetUnownedUserDataHost());
   }
 
 #if BUILDFLAG(ENABLE_AI_CHAT)
   if (base::FeatureList::IsEnabled(
           ai_chat::features::kAIChatMoveFullPageToSidePanel) &&
-      browser_->GetType() == BrowserWindowInterface::Type::TYPE_NORMAL &&
+      browser->GetType() == BrowserWindowInterface::Type::TYPE_NORMAL &&
       ai_chat::AIChatServiceFactory::GetForBrowserContext(
-          browser_->GetProfile())) {
+          browser->GetProfile())) {
     ai_chat_side_panel_tab_transfer_bridge_ =
         GetUserDataFactory().CreateInstance<AIChatSidePanelTabTransferBridge>(
-            *browser_, browser_);
+            *browser, browser);
   }
 #endif
-
-  BrowserWindowFeatures_ChromiumImpl::InitPostBrowserViewConstruction(
-      browser_view);
 }
 
-void BrowserWindowFeatures::TearDownPreBrowserWindowDestruction() {
-  BrowserWindowFeatures_ChromiumImpl::TearDownPreBrowserWindowDestruction();
+void BraveBrowserWindowFeatures::TearDownPreBrowserWindowDestruction() {
   screenshot_controller_.reset();
 #if BUILDFLAG(ENABLE_AI_CHAT)
   ai_chat_side_panel_tab_transfer_bridge_.reset();

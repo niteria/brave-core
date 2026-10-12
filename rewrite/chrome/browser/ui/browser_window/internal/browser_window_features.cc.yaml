@@ -4,15 +4,6 @@
 # You can obtain one at https://mozilla.org/MPL/2.0/.
 
 substitutions:
-  - description: |
-      Rename BrowserWindowFeatures to BrowserWindowFeatures_ChromiumImpl.
-
-      Matches the rename in browser_window_features.h so these definitions
-      target the class Brave's BrowserWindowFeatures subclass wraps.
-    rename_class:
-      class_name: BrowserWindowFeatures
-      rename: BrowserWindowFeatures_ChromiumImpl
-
   - description: 'Construct BraveBrowserActions instead of BrowserActions.'
     rename_class:
       class_name: BrowserActions

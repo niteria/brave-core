@@ -1,21 +1,7 @@
 diff --git a/chrome/browser/ui/browser_window/internal/browser_window_features.cc b/chrome/browser/ui/browser_window/internal/browser_window_features.cc
-index f51b0713750fb9775d39c252edc3f3caf4be7c52..4123c22e7ab2d382fa55e3bb10cb9b360de6a044 100644
+index f51b0713750fb9775d39c252edc3f3caf4be7c52..c5f2654add5dc8cbf69241638d5e083ac6bcb559 100644
 --- a/chrome/browser/ui/browser_window/internal/browser_window_features.cc
 +++ b/chrome/browser/ui/browser_window/internal/browser_window_features.cc
-@@ -243,10 +243,10 @@
- #include "chrome/browser/ui/overscroll_pref_manager.h"
- #endif  // defined(USE_AURA)
- 
--BrowserWindowFeatures::BrowserWindowFeatures() = default;
--BrowserWindowFeatures::~BrowserWindowFeatures() = default;
-+BrowserWindowFeatures_ChromiumImpl::BrowserWindowFeatures_ChromiumImpl() = default;
-+BrowserWindowFeatures_ChromiumImpl::~BrowserWindowFeatures_ChromiumImpl() = default;
- 
--void BrowserWindowFeatures::Init(BrowserWindowInterface* browser) {
-+void BrowserWindowFeatures_ChromiumImpl::Init(BrowserWindowInterface* browser) {
-   // This is used only for the controllers which will be created on demand
-   // later.
-   browser_ = browser;
 @@ -333,11 +333,11 @@ void BrowserWindowFeatures::Init(BrowserWindowInterface* browser) {
    // initializes the default enabled states for UI commands
    // (InitCommandState). If BrowserActions is not built first, those initial
@@ -39,15 +25,6 @@ index f51b0713750fb9775d39c252edc3f3caf4be7c52..4123c22e7ab2d382fa55e3bb10cb9b36
                                                                      browser);
  
    context_highlight_window_feature_ =
-@@ -683,7 +683,7 @@ void BrowserWindowFeatures::Init(BrowserWindowInterface* browser) {
-   embedder_browser_window_features_->Init(browser);
- }
- 
--void BrowserWindowFeatures::InitPostWindowConstruction(
-+void BrowserWindowFeatures_ChromiumImpl::InitPostWindowConstruction(
-     BrowserWindowInterface* browser) {
-   // Foundational state used throughout this function. Computed/assigned early
-   // so the alphabetical sections below can rely on them.
 @@ -812,7 +812,7 @@ void BrowserWindowFeatures::InitPostWindowConstruction(
  
    // Must be after exclusive_access_manager_,
@@ -66,37 +43,3 @@ index f51b0713750fb9775d39c252edc3f3caf4be7c52..4123c22e7ab2d382fa55e3bb10cb9b36
                                                                    browser);
    } else if (webui_browser_window) {
      webui_browser_side_panel_ui_ =
-@@ -1124,7 +1124,7 @@ void BrowserWindowFeatures::InitPostWindowConstruction(
-   embedder_browser_window_features_->InitPostWindowConstruction(browser);
- }
- 
--void BrowserWindowFeatures::InitPostBrowserViewConstruction(
-+void BrowserWindowFeatures_ChromiumImpl::InitPostBrowserViewConstruction(
-     BrowserView* browser_view) {
-   // WARNING: DO NOT ADD ANY MORE CODE HERE. Please perform setup in
-   // InitPostWindowConstruction() instead.
-@@ -1134,7 +1134,7 @@ void BrowserWindowFeatures::InitPostBrowserViewConstruction(
-       browser_view);
- }
- 
--void BrowserWindowFeatures::TearDownPreBrowserWindowDestruction() {
-+void BrowserWindowFeatures_ChromiumImpl::TearDownPreBrowserWindowDestruction() {
-   // Tear down in reverse order of construction: embedder first, then
-   // InitPostWindowConstruction, then Init. Within each section, members are
-   // torn down in reverse of the corresponding Init* ordering. Dependency
-@@ -1267,13 +1267,13 @@ void BrowserWindowFeatures::TearDownPreBrowserWindowDestruction() {
- 
- // static
- ui::UserDataFactoryWithOwner<BrowserWindowInterface>&
--BrowserWindowFeatures::GetUserDataFactoryForTesting() {
-+BrowserWindowFeatures_ChromiumImpl::GetUserDataFactoryForTesting() {
-   return GetUserDataFactory();
- }
- 
- // static
- ui::UserDataFactoryWithOwner<BrowserWindowInterface>&
--BrowserWindowFeatures::GetUserDataFactory() {
-+BrowserWindowFeatures_ChromiumImpl::GetUserDataFactory() {
-   static base::NoDestructor<
-       ui::UserDataFactoryWithOwner<BrowserWindowInterface>>
-       factory;
