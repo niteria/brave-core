@@ -413,6 +413,8 @@ source_set("ui") {
       "tabs/shared_pinned_tab_service.h",
       "tabs/shared_pinned_tab_service_factory.cc",
       "tabs/shared_pinned_tab_service_factory.h",
+      "tabs/shared_pinned_tab_utils.cc",
+      "tabs/shared_pinned_tab_utils.h",
       "toolbar/app_menu_icons.cc",
       "toolbar/app_menu_icons.h",
       "toolbar/brave_app_menu_model.cc",
