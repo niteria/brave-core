@@ -3123,11 +3123,11 @@ bool ConversationHandler::HasDeclinedAutoScreenshots() {
 void ConversationHandler::RequestVisionModelSwitch(
     mojom::ConversationTurnPtr turn,
     base::OnceCallback<void(bool send_images)> resume) {
-  DCHECK(!vision_model_switch_key_);
   const std::string model_key = GetVisionDefaultModelKey();
   const mojom::Model* model = model_service_->GetModel(model_key);
-  if (!model || !model->vision_support) {
-    // There is no model to offer, so send without the images.
+  if (vision_model_switch_key_ || !model || !model->vision_support) {
+    // Another submission already waits for the user, or there is no model to
+    // offer, so send without the images.
     if (turn) {
       RemoveUploadedImagesAndScreenshots(*turn);
       CommitHumanConversationEntry(std::move(turn));
