@@ -1285,6 +1285,44 @@ void ConversationHandler::StopGenerationAndMaybeGetHumanEntry(
   }
 }
 
+void ConversationHandler::RespondToVisionModelSwitch(
+    mojom::VisionModelSwitchDecision decision) {
+  if (!vision_model_switch_key_) {
+    return;
+  }
+  const bool send_images =
+      decision == mojom::VisionModelSwitchDecision::kSwitch;
+  const std::string model_key = *vision_model_switch_key_;
+  mojom::ConversationTurnPtr turn = std::move(vision_model_switch_turn_);
+  auto resume = std::move(vision_model_switch_resume_);
+  ClearVisionModelSwitch();
+
+  if (send_images) {
+    ChangeModel(model_key);
+    // A regenerated answer names its model on the turn.
+    mojom::ConversationTurn* waiting_turn =
+        turn ? turn.get()
+             : (chat_history_.empty() ? nullptr : chat_history_.back().get());
+    if (waiting_turn && waiting_turn->model_key) {
+      waiting_turn->model_key = model_key_;
+    }
+  }
+
+  if (!turn) {
+    auto_screenshots_declined_ = !send_images;
+    std::move(resume).Run(send_images);
+    return;
+  }
+
+  if (!send_images) {
+    std::erase_if(*turn->uploaded_files, &IsImageOrScreenshot);
+    if (turn->uploaded_files->empty()) {
+      turn->uploaded_files.reset();
+    }
+  }
+  CommitHumanConversationEntry(std::move(turn));
+}
+
 void ConversationHandler::ClearErrorAndGetFailedMessage(
     ClearErrorAndGetFailedMessageCallback callback) {
   DCHECK(!chat_history_.empty());
@@ -3107,44 +3145,6 @@ void ConversationHandler::OnVisionModelSwitchChanged() {
   for (auto& client : conversation_ui_handlers_) {
     client->OnVisionModelSwitchChanged(vision_model_switch_key_);
   }
-}
-
-void ConversationHandler::RespondToVisionModelSwitch(
-    mojom::VisionModelSwitchDecision decision) {
-  if (!vision_model_switch_key_) {
-    return;
-  }
-  const bool send_images =
-      decision == mojom::VisionModelSwitchDecision::kSwitch;
-  const std::string model_key = *vision_model_switch_key_;
-  mojom::ConversationTurnPtr turn = std::move(vision_model_switch_turn_);
-  auto resume = std::move(vision_model_switch_resume_);
-  ClearVisionModelSwitch();
-
-  if (send_images) {
-    ChangeModel(model_key);
-    // A regenerated answer names its model on the turn.
-    mojom::ConversationTurn* waiting_turn =
-        turn ? turn.get()
-             : (chat_history_.empty() ? nullptr : chat_history_.back().get());
-    if (waiting_turn && waiting_turn->model_key) {
-      waiting_turn->model_key = model_key_;
-    }
-  }
-
-  if (!turn) {
-    auto_screenshots_declined_ = !send_images;
-    std::move(resume).Run(send_images);
-    return;
-  }
-
-  if (!send_images) {
-    std::erase_if(*turn->uploaded_files, &IsImageOrScreenshot);
-    if (turn->uploaded_files->empty()) {
-      turn->uploaded_files.reset();
-    }
-  }
-  CommitHumanConversationEntry(std::move(turn));
 }
 
 void ConversationHandler::OnAutoScreenshotsTaken(
