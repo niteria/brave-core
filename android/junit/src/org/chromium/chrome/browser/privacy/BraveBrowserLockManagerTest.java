@@ -30,11 +30,9 @@ import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
 import org.robolectric.Robolectric;
 import org.robolectric.annotation.Config;
-import org.robolectric.shadows.ShadowSystemClock;
 
 import org.chromium.base.ActivityState;
 import org.chromium.base.ApplicationState;
-import org.chromium.base.BraveExternalActivityLaunchTracker;
 import org.chromium.base.BravePreferenceKeys;
 import org.chromium.base.FeatureOverrides;
 import org.chromium.base.test.BaseRobolectricTestRunner;
@@ -48,7 +46,6 @@ import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.ui.modaldialog.ModalDialogManager;
 import org.chromium.ui.modaldialog.ModalDialogManagerHolder;
 
-import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -103,7 +100,6 @@ public class BraveBrowserLockManagerTest {
         IncognitoReauthSettingUtils.setIsDeviceScreenLockEnabledForTesting(true);
         ChromeSharedPreferences.getInstance()
                 .writeBoolean(BravePreferenceKeys.BRAVE_BROWSER_LOCK, false);
-        BraveExternalActivityLaunchTracker.resetForTesting();
     }
 
     private BraveBrowserLockManager createManager() {
@@ -158,53 +154,39 @@ public class BraveBrowserLockManagerTest {
     }
 
     @Test
-    public void externalActivityLaunch_quickReturn_skipsRearm() {
-        // Regression coverage: a known benign round trip (file picker, share sheet, OS security
-        // settings redirect, or any external app opened via a link) must not re-show the lock
-        // purely because it transiently stopped all of Brave's own activities.
+    public void suppressNextRearm_skipsOneBackgroundTransition() {
+        // Regression coverage: a known benign round trip (e.g. the "no screen lock configured"
+        // redirect to OS security settings) must not re-show the lock purely because it
+        // transiently stops all of Brave's own activities.
         ChromeSharedPreferences.getInstance()
                 .writeBoolean(BravePreferenceKeys.BRAVE_BROWSER_LOCK, true);
-        TestManager manager = createTestManager();
-        manager.setLockArmedForTesting(true); // as if HAS_STOPPED_ACTIVITIES already armed it
+        BraveBrowserLockManager manager = createManager();
+        BraveBrowserLockManager.setInstanceForTesting(manager);
+        manager.setLockArmedForTesting(false);
 
-        BraveExternalActivityLaunchTracker.notifyLaunchingExternalActivity();
-        manager.onActivityStateChange(mActivity, ActivityState.STARTED);
+        BraveBrowserLockManager.suppressNextRearm();
+        manager.getAppStateListenerForTesting()
+                .onApplicationStateChange(ApplicationState.HAS_STOPPED_ACTIVITIES);
 
         assertFalse(manager.isLockArmedForTesting());
-        verify(mMockCoordinator, never()).show();
     }
 
     @Test
-    public void externalActivityLaunch_slowReturn_doesNotSkipRearm() {
-        // If the round trip (or whatever the user did in the meantime) took long enough, treat
-        // it as a real absence from the app and re-arm normally.
+    public void suppressNextRearm_onlySkipsTheNextTransitionNotLaterOnes() {
         ChromeSharedPreferences.getInstance()
                 .writeBoolean(BravePreferenceKeys.BRAVE_BROWSER_LOCK, true);
-        TestManager manager = createTestManager();
-        manager.setLockArmedForTesting(true);
+        BraveBrowserLockManager manager = createManager();
+        BraveBrowserLockManager.setInstanceForTesting(manager);
+        manager.setLockArmedForTesting(false);
 
-        BraveExternalActivityLaunchTracker.notifyLaunchingExternalActivity();
-        ShadowSystemClock.advanceBy(Duration.ofMinutes(10));
-        manager.onActivityStateChange(mActivity, ActivityState.STARTED);
-
-        assertTrue(manager.isLockArmedForTesting());
-    }
-
-    @Test
-    public void externalActivityLaunch_consumedOnce_doesNotAffectASecondResume() {
-        ChromeSharedPreferences.getInstance()
-                .writeBoolean(BravePreferenceKeys.BRAVE_BROWSER_LOCK, true);
-        TestManager manager = createTestManager();
-
-        BraveExternalActivityLaunchTracker.notifyLaunchingExternalActivity();
-        manager.setLockArmedForTesting(true);
-        manager.onActivityStateChange(mActivity, ActivityState.STARTED);
+        BraveBrowserLockManager.suppressNextRearm();
+        manager.getAppStateListenerForTesting()
+                .onApplicationStateChange(ApplicationState.HAS_STOPPED_ACTIVITIES);
         assertFalse(manager.isLockArmedForTesting());
 
-        // A second, unrelated stop/resume shortly after must not also be treated as a quick
-        // return — the signal was already consumed.
-        manager.setLockArmedForTesting(true);
-        manager.onActivityStateChange(mActivity, ActivityState.STARTED);
+        // A later, genuine backgrounding is not suppressed.
+        manager.getAppStateListenerForTesting()
+                .onApplicationStateChange(ApplicationState.HAS_STOPPED_ACTIVITIES);
         assertTrue(manager.isLockArmedForTesting());
     }
 
