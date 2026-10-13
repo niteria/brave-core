@@ -660,6 +660,7 @@ function StoryContext(
               capabilitiesEnabled: argsRef.current.capabilitiesEnabled.map(
                 (value) => Mojom.ConversationCapability[value],
               ),
+              visionModelSwitchKey: undefined,
             },
           })
         },

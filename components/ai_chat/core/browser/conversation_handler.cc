@@ -149,16 +149,17 @@ mojom::ConversationEntryEvent* MaybeGetEventToAppend(
   return nullptr;
 }
 
+bool IsImageOrScreenshot(const mojom::UploadedFilePtr& file) {
+  return file->type == mojom::UploadedFileType::kImage ||
+         file->type == mojom::UploadedFileType::kScreenshot;
+}
+
 bool HasUploadedImageOrScreenshot(
     const std::optional<std::vector<mojom::UploadedFilePtr>>& uploaded_files) {
   if (!uploaded_files || uploaded_files->empty()) {
     return false;
   }
-  return std::ranges::any_of(
-      *uploaded_files, [](const mojom::UploadedFilePtr& file) {
-        return file->type == mojom::UploadedFileType::kImage ||
-               file->type == mojom::UploadedFileType::kScreenshot;
-      });
+  return std::ranges::any_of(*uploaded_files, &IsImageOrScreenshot);
 }
 
 }  // namespace
@@ -582,6 +583,10 @@ void ConversationHandler::GetConversationHistory(
       pending_conversation_entry_->thread_uuid == thread_uuid) {
     history.push_back(pending_conversation_entry_->Clone());
   }
+  if (vision_model_switch_turn_ &&
+      vision_model_switch_turn_->thread_uuid == thread_uuid) {
+    history.push_back(vision_model_switch_turn_->Clone());
+  }
 
   std::move(callback).Run(std::move(history));
 }
@@ -633,7 +638,7 @@ void ConversationHandler::GetState(GetStateCallback callback) {
       current_error_.api_error,
       current_error_.details ? current_error_.details->Clone() : nullptr,
       metadata_->temporary, tool_use_task_state_,
-      base::ToVector(conversation_capabilities_));
+      base::ToVector(conversation_capabilities_), vision_model_switch_key_);
 
   std::move(callback).Run(std::move(state));
 }
@@ -777,9 +782,6 @@ void ConversationHandler::SubmitHumanConversationEntry(
       << "Should not be able to submit more"
       << "than a single human conversation turn at a time.";
 
-  // Auto-switch to vision model if needed
-  MaybeSwitchModelForSubmission(uploaded_files);
-
   mojom::ConversationTurnPtr turn = mojom::ConversationTurn::New(
       std::nullopt, thread_uuid, CharacterType::HUMAN, mojom::ActionType::QUERY,
       input, std::nullopt /* prompt */, std::nullopt /* selected_text */,
@@ -863,6 +865,17 @@ void ConversationHandler::SubmitHumanConversationEntry(
     engine_->SanitizeInput(*latest_turn->selected_text);
   }
 
+  if (HasUploadedImageOrScreenshot(turn->uploaded_files) &&
+      !CanModelForTurnReadImages(*turn)) {
+    RequestVisionModelSwitch(std::move(turn), base::NullCallback());
+    return;
+  }
+
+  CommitHumanConversationEntry(std::move(turn));
+}
+
+void ConversationHandler::CommitHumanConversationEntry(
+    mojom::ConversationTurnPtr turn) {
   const std::optional<std::string> thread_uuid = turn->thread_uuid;
 
   // Add the human part to the conversation
@@ -900,7 +913,7 @@ void ConversationHandler::SubmitHumanConversationEntryWithSkill(
   if (skill && skill->model && !skill->model->empty()) {
     skill_model = *skill->model;
   }
-  MaybeSwitchModelForSubmission(uploaded_files, skill_model);
+  MaybeSwitchModelForSubmission(skill_model);
 
   mojom::SkillEntryPtr skill_entry = nullptr;
 
@@ -1234,6 +1247,19 @@ void ConversationHandler::RetryAPIRequest() {
 
 void ConversationHandler::StopGenerationAndMaybeGetHumanEntry(
     StopGenerationAndMaybeGetHumanEntryCallback callback) {
+  if (vision_model_switch_turn_) {
+    // The waiting submission never reached history or the engine.
+    mojom::ConversationTurnPtr turn = std::move(vision_model_switch_turn_);
+    ClearVisionModelSwitch();
+    is_request_in_progress_ = false;
+    thread_uuid_in_progress_ = std::nullopt;
+    OnAPIRequestInProgressChanged();
+    OnHistoryUpdate(nullptr);
+    std::move(callback).Run(std::move(turn));
+    return;
+  }
+  ClearVisionModelSwitch();
+
   if (chat_history_.empty()) {
     std::move(callback).Run(nullptr);
     return;
@@ -2133,7 +2159,7 @@ void ConversationHandler::OnGeneratePageContentComplete(
         });
 
     // Only take screenshots if no screenshots have been taken yet
-    if (!has_screenshots) {
+    if (!has_screenshots && !HasDeclinedAutoScreenshots()) {
       associated_content_manager_->GetScreenshots(
           base::BindOnce(&ConversationHandler::OnAutoScreenshotsTaken,
                          weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
@@ -3016,33 +3042,109 @@ bool ConversationHandler::IsTemporaryChat() const {
   return metadata_->temporary;
 }
 
-std::string ConversationHandler::GetVisionCapableModelKey(
-    const std::string& model_key) const {
-  const auto* model = model_service_->GetModel(model_key);
-  if (model && model->vision_support) {
-    return model_key;
-  }
+std::string ConversationHandler::GetVisionDefaultModelKey() const {
   return ai_chat_service_->IsPremiumStatus()
              ? features::kAIModelsPremiumVisionDefaultKey.Get()
              : features::kAIModelsVisionDefaultKey.Get();
 }
 
 void ConversationHandler::MaybeSwitchModelForSubmission(
-    const std::optional<std::vector<mojom::UploadedFilePtr>>& uploaded_files,
-    const std::optional<std::string>& intended_model_key) {
+    const std::optional<std::string>& model_key) {
+  if (!model_key || model_key->empty()) {
+    return;
+  }
   const std::string current_model_key =
       metadata_->model_key.value_or("").empty()
           ? model_service_->GetDefaultModelKey()
           : metadata_->model_key.value();
-  std::string target = (intended_model_key && !intended_model_key->empty())
-                           ? *intended_model_key
-                           : current_model_key;
-  if (HasUploadedImageOrScreenshot(uploaded_files)) {
-    target = GetVisionCapableModelKey(target);
+  if (*model_key != current_model_key) {
+    ChangeModel(*model_key);
   }
-  if (target != current_model_key) {
-    ChangeModel(target);
+}
+
+bool ConversationHandler::CanModelForTurnReadImages(
+    const mojom::ConversationTurn& turn) {
+  const mojom::Model* model =
+      turn.model_key ? model_service_->GetModel(*turn.model_key) : nullptr;
+  return (model ? *model : GetCurrentModel()).vision_support;
+}
+
+bool ConversationHandler::HasDeclinedAutoScreenshots() {
+  return auto_screenshots_declined_ && !chat_history_.empty() &&
+         chat_history_.back()->character_type == mojom::CharacterType::HUMAN &&
+         !CanModelForTurnReadImages(*chat_history_.back());
+}
+
+void ConversationHandler::RequestVisionModelSwitch(
+    mojom::ConversationTurnPtr turn,
+    base::OnceCallback<void(bool send_images)> resume) {
+  DCHECK(!vision_model_switch_key_);
+  // The UI shows the held turn and later merges the committed one into it by
+  // uuid.
+  if (turn && !turn->uuid) {
+    turn->uuid = base::Uuid::GenerateRandomV4().AsLowercaseString();
   }
+  vision_model_switch_key_ = GetVisionDefaultModelKey();
+  vision_model_switch_turn_ = std::move(turn);
+  vision_model_switch_resume_ = std::move(resume);
+  OnVisionModelSwitchChanged();
+  if (vision_model_switch_turn_) {
+    OnHistoryUpdate(vision_model_switch_turn_.Clone());
+  }
+}
+
+void ConversationHandler::ClearVisionModelSwitch() {
+  if (!vision_model_switch_key_) {
+    return;
+  }
+  vision_model_switch_key_.reset();
+  vision_model_switch_turn_.reset();
+  vision_model_switch_resume_.Reset();
+  OnVisionModelSwitchChanged();
+}
+
+void ConversationHandler::OnVisionModelSwitchChanged() {
+  for (auto& client : conversation_ui_handlers_) {
+    client->OnVisionModelSwitchChanged(vision_model_switch_key_);
+  }
+}
+
+void ConversationHandler::RespondToVisionModelSwitch(
+    mojom::VisionModelSwitchDecision decision) {
+  if (!vision_model_switch_key_) {
+    return;
+  }
+  const bool send_images =
+      decision == mojom::VisionModelSwitchDecision::kSwitch;
+  const std::string model_key = *vision_model_switch_key_;
+  mojom::ConversationTurnPtr turn = std::move(vision_model_switch_turn_);
+  auto resume = std::move(vision_model_switch_resume_);
+  ClearVisionModelSwitch();
+
+  if (send_images) {
+    ChangeModel(model_key);
+    // A regenerated answer names its model on the turn.
+    mojom::ConversationTurn* waiting_turn =
+        turn ? turn.get()
+             : (chat_history_.empty() ? nullptr : chat_history_.back().get());
+    if (waiting_turn && waiting_turn->model_key) {
+      waiting_turn->model_key = model_key_;
+    }
+  }
+
+  if (!turn) {
+    auto_screenshots_declined_ = !send_images;
+    std::move(resume).Run(send_images);
+    return;
+  }
+
+  if (!send_images) {
+    std::erase_if(*turn->uploaded_files, &IsImageOrScreenshot);
+    if (turn->uploaded_files->empty()) {
+      turn->uploaded_files.reset();
+    }
+  }
+  CommitHumanConversationEntry(std::move(turn));
 }
 
 void ConversationHandler::OnAutoScreenshotsTaken(
@@ -3074,28 +3176,54 @@ void ConversationHandler::OnAutoScreenshotsTaken(
                << ", Discarded: " << discarded_count;
     }
 
-    // Auto-switch to vision model if needed
-    MaybeSwitchModelForSubmission(screenshots);
-
-    // Update the last conversation turn with the uploaded files
-    if (!chat_history_.empty() &&
-        chat_history_.back()->character_type == mojom::CharacterType::HUMAN) {
-      // Append screenshots to existing uploaded files instead of replacing them
-      if (!chat_history_.back()->uploaded_files) {
-        chat_history_.back()->uploaded_files.emplace();
-      }
-      chat_history_.back()->uploaded_files->insert(
-          chat_history_.back()->uploaded_files->end(),
-          std::make_move_iterator(screenshots->begin()),
-          std::make_move_iterator(screenshots->end()));
-      // Notify UI about the updated conversation turn
-      OnHistoryUpdate(chat_history_.back().Clone());
+    // The screenshots join the human entry being answered, so ask before
+    // sending them to a model that can't read them.
+    if (is_request_in_progress_ && !chat_history_.empty() &&
+        chat_history_.back()->character_type == mojom::CharacterType::HUMAN &&
+        !CanModelForTurnReadImages(*chat_history_.back())) {
+      RequestVisionModelSwitch(
+          nullptr, base::BindOnce(&ConversationHandler::AttachAutoScreenshots,
+                                  weak_ptr_factory_.GetWeakPtr(),
+                                  std::move(callback), std::move(*screenshots),
+                                  calculated_visual_percentage));
+      return;
     }
+  }
+
+  AttachAutoScreenshots(std::move(callback),
+                        screenshots ? std::move(*screenshots)
+                                    : std::vector<mojom::UploadedFilePtr>(),
+                        calculated_visual_percentage, /*send_images=*/true);
+}
+
+void ConversationHandler::AttachAutoScreenshots(
+    base::OnceClosure callback,
+    std::vector<mojom::UploadedFilePtr> screenshots,
+    std::optional<uint32_t> visual_content_used_percentage,
+    bool send_images) {
+  if (!send_images) {
+    screenshots.clear();
+    visual_content_used_percentage = std::nullopt;
+  }
+
+  // Update the last conversation turn with the uploaded files
+  if (!screenshots.empty() && !chat_history_.empty() &&
+      chat_history_.back()->character_type == mojom::CharacterType::HUMAN) {
+    // Append screenshots to existing uploaded files instead of replacing them
+    if (!chat_history_.back()->uploaded_files) {
+      chat_history_.back()->uploaded_files.emplace();
+    }
+    chat_history_.back()->uploaded_files->insert(
+        chat_history_.back()->uploaded_files->end(),
+        std::make_move_iterator(screenshots.begin()),
+        std::make_move_iterator(screenshots.end()));
+    // Notify UI about the updated conversation turn
+    OnHistoryUpdate(chat_history_.back().Clone());
   }
 
   // Store the calculated visual content percentage for UI display
   const auto old = visual_content_used_percentage_;
-  visual_content_used_percentage_ = calculated_visual_percentage;
+  visual_content_used_percentage_ = visual_content_used_percentage;
 
   // Trigger UI state update only when visual content percentage has changed
   if (old != visual_content_used_percentage_) {
