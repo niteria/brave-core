@@ -589,13 +589,13 @@ void ConversationHandler::GetConversationHistory(
 
   std::vector<mojom::ConversationTurnPtr> history =
       mojo::Clone(GetMutableConversationHistory(thread_uuid));
-  if (pending_conversation_entry_ &&
-      pending_conversation_entry_->thread_uuid == thread_uuid) {
-    history.push_back(pending_conversation_entry_->Clone());
-  }
   if (vision_model_switch_turn_ &&
       vision_model_switch_turn_->thread_uuid == thread_uuid) {
     history.push_back(vision_model_switch_turn_->Clone());
+  }
+  if (pending_conversation_entry_ &&
+      pending_conversation_entry_->thread_uuid == thread_uuid) {
+    history.push_back(pending_conversation_entry_->Clone());
   }
 
   std::move(callback).Run(std::move(history));

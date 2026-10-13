@@ -5811,6 +5811,38 @@ TEST_F(ConversationHandlerUnitTest, VisionModelSwitch_SendWithoutImages) {
             history_future.Get()[0]->uuid);
 }
 
+// A submission made while another waits for the vision model decision is
+// shown after the waiting one.
+TEST_F(ConversationHandlerUnitTest, VisionModelSwitch_HistoryOrder) {
+  conversation_handler_->associated_content_manager()->ClearContent();
+  NiceMock<MockConversationHandlerClient> client(conversation_handler_.get());
+  ChangeModelAndMockEngine(client, kNonVisionModelKey);
+
+  base::RunLoop prompt_loop;
+  EXPECT_CALL(client, OnVisionModelSwitchChanged(testing::Optional(_)))
+      .WillOnce(testing::InvokeWithoutArgs(&prompt_loop, &base::RunLoop::Quit));
+  conversation_handler_->SubmitHumanConversationEntry(
+      "What is this?",
+      CreateSampleUploadedFiles(1, mojom::UploadedFileType::kImage));
+  prompt_loop.Run();
+
+  // E.g. from the location bar, while the first submission waits.
+  conversation_handler_->SubmitHumanConversationEntry(
+      mojom::ConversationTurn::New(
+          std::nullopt, std::nullopt, mojom::CharacterType::HUMAN,
+          mojom::ActionType::QUERY, "And this?", std::nullopt, std::nullopt,
+          std::nullopt, base::Time::Now(), std::nullopt, std::nullopt, nullptr,
+          false, std::nullopt, nullptr, std::vector<std::string>{}));
+
+  base::test::TestFuture<std::vector<mojom::ConversationTurnPtr>>
+      history_future;
+  conversation_handler_->GetConversationHistory(history_future.GetCallback());
+  const auto& history = history_future.Get();
+  ASSERT_EQ(history.size(), 2u);
+  EXPECT_EQ(history[0]->text, "What is this?");
+  EXPECT_EQ(history[1]->text, "And this?");
+}
+
 class ConversationHandlerUnitTest_NoVisionDefaultModel
     : public ConversationHandlerUnitTest {
  public:
