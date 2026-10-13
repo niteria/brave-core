@@ -310,7 +310,7 @@
     Switch to a model that can read images?
   </message>
   <message name="IDS_CHAT_UI_VISION_MODEL_SWITCH_DESCRIPTION" desc="Body of the dialog asking whether to switch to a model that can read the images in a message, because the current model can't" formatter_data="webui=AiChat">
-    <ph name="CURRENT_MODEL">$1<ex>DeepSeek V3.2</ex></ph> can't read images. To send them, switch this conversation to <ph name="VISION_MODEL">$2<ex>Claude Haiku</ex></ph>. You can also cancel and choose another model that can read images. The new model receives the whole conversation, including earlier messages.
+    <ph name="CURRENT_MODEL">$1<ex>DeepSeek V3.2</ex></ph> can't read images, and your attachments need image processing. To send them, switch this conversation to <ph name="VISION_MODEL">$2<ex>Claude Haiku</ex></ph>. It will receive the whole conversation, including earlier messages. You can also cancel and choose another model that can read images. If you send without images, Leo can't see the attachments.
   </message>
   <message name="IDS_CHAT_UI_VISION_MODEL_SWITCH_BUTTON_LABEL" desc="Button label to switch to a model that can read images and send the message with its images" formatter_data="webui=AiChat">
     Switch and send
