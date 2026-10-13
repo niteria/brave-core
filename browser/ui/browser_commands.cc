@@ -95,6 +95,11 @@
 #include "chrome/browser/ui/side_panel/side_panel_entry_id.h"
 #include "chrome/browser/ui/side_panel/side_panel_enums.h"
 #include "chrome/browser/ui/side_panel/side_panel_ui.h"
+#include "chrome/browser/ui/views/interaction/browser_elements_views.h"
+#endif
+
+#if BUILDFLAG(ENABLE_BRAVE_WALLET) && defined(TOOLKIT_VIEWS)
+#include "brave/browser/ui/views/toolbar/wallet_button.h"
 #endif
 
 #if BUILDFLAG(ENABLE_SPEEDREADER)
@@ -346,13 +351,21 @@ void ToggleAIChat(BrowserWindowInterface* browser) {
 #if BUILDFLAG(ENABLE_BRAVE_WALLET)
 void ShowWalletBubble(BrowserWindowInterface* browser) {
 #if defined(TOOLKIT_VIEWS)
-  BraveBrowserView::GetBrowserViewForBrowser(browser)->CreateWalletBubble();
+  if (auto* wallet_button =
+          BrowserElementsViews::From(browser)->GetViewAs<WalletButton>(
+              WalletButton::kWalletButtonElementId)) {
+    wallet_button->ShowWalletBubble();
+  }
 #endif
 }
 
 void CloseWalletBubble(BrowserWindowInterface* browser) {
 #if defined(TOOLKIT_VIEWS)
-  BraveBrowserView::GetBrowserViewForBrowser(browser)->CloseWalletBubble();
+  if (auto* wallet_button =
+          BrowserElementsViews::From(browser)->GetViewAs<WalletButton>(
+              WalletButton::kWalletButtonElementId)) {
+    wallet_button->CloseWalletBubble();
+  }
 #endif
 }
 #endif

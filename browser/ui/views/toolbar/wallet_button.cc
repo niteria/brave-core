@@ -35,6 +35,7 @@
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/menus/simple_menu_model.h"
 #include "ui/views/controls/highlight_path_generator.h"
+#include "ui/views/view_class_properties.h"
 
 namespace {
 
@@ -118,6 +119,8 @@ const ui::ColorProvider* GetColorProviderForView(
 
 }  // namespace
 
+DEFINE_CLASS_ELEMENT_IDENTIFIER_VALUE(WalletButton, kWalletButtonElementId);
+
 WalletButton::WalletButton(View* backup_anchor_view, Profile* profile)
     : ToolbarButton(
           base::BindRepeating(&WalletButton::OnWalletPressed,
@@ -129,6 +132,7 @@ WalletButton::WalletButton(View* backup_anchor_view, Profile* profile)
       prefs_(profile->GetPrefs()),
       backup_anchor_view_(backup_anchor_view) {
   SetTooltipText(l10n_util::GetStringUTF16(IDS_TOOLTIP_WALLET));
+  SetProperty(views::kElementIdentifierKey, kWalletButtonElementId);
 
   // The MenuButtonController makes sure the panel closes when clicked if the
   // panel is already open.

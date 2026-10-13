@@ -10,11 +10,12 @@
 #include <utility>
 
 #include "base/check.h"
+#include "base/check_deref.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "brave/browser/brave_wallet/brave_wallet_context_utils.h"
-#include "brave/browser/ui/views/frame/brave_browser_view.h"
+#include "brave/browser/ui/views/toolbar/wallet_button.h"
 #include "brave/browser/ui/webui/brave_wallet/wallet_panel/wallet_panel_ui.h"
 #include "chrome/browser/file_select_helper.h"
 #include "chrome/browser/picture_in_picture/picture_in_picture_occlusion_observer.h"
@@ -25,6 +26,7 @@
 #include "chrome/browser/ui/views/bubble/webui_bubble_manager.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/top_container_view.h"
+#include "chrome/browser/ui/views/interaction/browser_elements_views.h"
 #include "components/grit/brave_components_strings.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/base/metadata/metadata_header_macros.h"
@@ -226,8 +228,13 @@ WalletBubbleManagerDelegateImpl::WalletBubbleManagerDelegateImpl(
 
   views::View* anchor_view;
   if (browser->GetType() == BrowserWindowInterface::Type::TYPE_NORMAL) {
-    anchor_view = BraveBrowserView::GetBrowserViewForBrowser(browser)
-                      ->GetWalletButtonAnchorView();
+    // Normal windows always have a wallet button in their toolbar, even when
+    // it is hidden.
+    anchor_view =
+        CHECK_DEREF(
+            BrowserElementsViews::From(browser)->GetViewAs<WalletButton>(
+                WalletButton::kWalletButtonElementId))
+            .GetAsAnchorView();
   } else {
     anchor_view =
         BrowserView::GetBrowserViewForBrowser(browser)->top_container();

@@ -13,6 +13,7 @@
 #include "base/memory/raw_ptr.h"
 #include "brave/browser/ui/views/toolbar/wallet_button_notification_source.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_button.h"
+#include "ui/base/interaction/element_identifier.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/controls/button/menu_button_controller.h"
 
@@ -27,6 +28,8 @@ class WalletButton : public ToolbarButton {
   METADATA_HEADER(WalletButton, ToolbarButton)
 
  public:
+  DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(kWalletButtonElementId);
+
   WalletButton(View* backup_anchor_view, Profile* profile);
   ~WalletButton() override;
 
