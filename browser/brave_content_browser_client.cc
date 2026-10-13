@@ -282,7 +282,7 @@ using extensions::ChromeContentBrowserClientExtensionsPart;
 
 #if BUILDFLAG(ENABLE_TOR)
 #include "brave/browser/tor/tor_profile_service_factory.h"
-#include "brave/components/tor/onion_domain_throttle.h"
+#include "brave/components/tor/common/onion_domain_throttle.h"
 #include "brave/components/tor/onion_location_navigation_throttle.h"
 #include "brave/components/tor/pref_names.h"
 #include "brave/components/tor/tor_navigation_throttle.h"
