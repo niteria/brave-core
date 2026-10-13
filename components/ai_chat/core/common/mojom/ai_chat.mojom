@@ -318,6 +318,15 @@ interface AIChatUIHandler {
   // in its place.
   OpenWorkspaceFile(url.mojom.Url workspace_url, string file_path);
 
+  // Attaches the existing workspace identified by |workspace_url|
+  // (workspace://<uuid>, as in its AssociatedContent) to the given
+  // conversation, so it can share the workspace's folder with the
+  // conversations it's already attached to. No-op if the conversation already
+  // has a workspace. Only meaningful when the AIChatWorkspaceTools feature is
+  // enabled.
+  AttachExistingWorkspace(string conversation_uuid,
+                          url.mojom.Url workspace_url);
+
   // This might be a no-op if the UI isn't closeable
   CloseUI();
 

@@ -5,6 +5,7 @@
 
 import * as React from 'react'
 import { useRoute } from '$web-common/useRoute'
+import { Url } from 'gen/url/mojom/url.mojom.m.js'
 import * as BindConversation from '../api/bind_conversation'
 import useHasConversationStarted from '../hooks/useHasConversationStarted'
 import { useAIChat } from './ai_chat_context'
@@ -18,6 +19,9 @@ export interface SelectedChatDetails
   selectedConversationId: string | undefined
   updateSelectedConversationId: (conversationId: string | undefined) => void
   createNewConversation: () => void
+  // Creates a new conversation, as createNewConversation does, with the
+  // existing workspace at |workspaceUrl| attached.
+  createNewConversationWithWorkspace: (workspaceUrl: Url) => void
   isMainConversation: boolean
   openMainConversation: () => void
 }
@@ -33,6 +37,7 @@ export const ActiveChatContext = React.createContext<SelectedChatDetails>({
   selectedConversationId: undefined,
   updateSelectedConversationId: () => {},
   createNewConversation: () => {},
+  createNewConversationWithWorkspace: () => {},
   isMainConversation: false,
   openMainConversation: () => {},
   // It's ok to stub undefined for now because we don't render children unless
@@ -93,8 +98,29 @@ export function ActiveChatProvider({
     || selectedConversationId === globalConversationId
     || (isGlobalPanel && !selectedConversationId)
 
-  const details = React.useMemo<SelectedChatDetails>(
-    () => ({
+  // A workspace to attach to the next new conversation, once it's bound. See
+  // createNewConversationWithWorkspace.
+  const pendingWorkspaceUrlRef = React.useRef<Url | undefined>(undefined)
+
+  const details = React.useMemo<SelectedChatDetails>(() => {
+    const createNewConversation = () => {
+      // Special case mainConversation - manually bind a new conversation as we might
+      // not be able to change the URL.
+      if (isMainConversation) {
+        setConversationAPI(BindConversation.newConversation(aiChat.api))
+
+        // Note: On tab-associated conversations, we shouldn't navigate to "/" because then we wouldn't be looking at
+        // the tab-associated conversation!
+        if (selectedConversationId === tabAssociatedChatId) {
+          return
+        }
+      }
+
+      // Otherwise, navigate to "/"
+      updateSelectedConversation('')
+    }
+
+    return {
       ...conversationAPI!, // It's always got a value
       selectedConversationId,
       updateSelectedConversationId,
@@ -107,31 +133,48 @@ export function ActiveChatProvider({
           throw new Error('No main conversation!')
         }
       },
-      createNewConversation: () => {
-        // Special case mainConversation - manually bind a new conversation as we might
-        // not be able to change the URL.
-        if (isMainConversation) {
+      createNewConversation,
+      createNewConversationWithWorkspace: (workspaceUrl: Url) => {
+        pendingWorkspaceUrlRef.current = workspaceUrl
+
+        // Already on a new conversation at "/", so navigating there wouldn't
+        // bind another one. Bind it here instead, rather than attaching the
+        // workspace to the current one, which may have content staged.
+        if (!selectedConversationId && !isMainConversation) {
           setConversationAPI(BindConversation.newConversation(aiChat.api))
-
-          // Note: On tab-associated conversations, we shouldn't navigate to "/" because then we wouldn't be looking at
-          // the tab-associated conversation!
-          if (selectedConversationId === tabAssociatedChatId) {
-            return
-          }
+          return
         }
-
-        // Otherwise, navigate to "/"
-        updateSelectedConversation('')
+        createNewConversation()
       },
       isMainConversation,
-    }),
-    [
-      selectedConversationId,
-      updateSelectedConversationId,
-      conversationAPI,
-      globalConversationId,
-    ],
-  )
+    }
+  }, [
+    selectedConversationId,
+    updateSelectedConversationId,
+    conversationAPI,
+    globalConversationId,
+  ])
+
+  // Attach any pending workspace to the newly bound conversation. Binding a
+  // new conversation can happen more than once in a row (e.g. directly and
+  // then on navigating to "/"), so only the latest binding gets it.
+  React.useEffect(() => {
+    const workspaceUrl = pendingWorkspaceUrlRef.current
+    if (!conversationAPI || !workspaceUrl) return
+
+    let cancelled = false
+    conversationAPI.api.getState.fetch().then(({ conversationUuid }) => {
+      if (cancelled || pendingWorkspaceUrlRef.current !== workspaceUrl) return
+      pendingWorkspaceUrlRef.current = undefined
+      aiChat.api.uiHandler.attachExistingWorkspace(
+        conversationUuid,
+        workspaceUrl,
+      )
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [conversationAPI])
 
   // Handle child frame requests we switch to new conversation
   aiChat.api.useRequestNewConversation(() => {

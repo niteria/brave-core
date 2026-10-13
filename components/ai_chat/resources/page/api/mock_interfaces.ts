@@ -247,6 +247,7 @@ export function createMockUIHandler(
 
     // Action methods - fire and forget stubs
     newConversation: () => {},
+    attachExistingWorkspace: () => {},
     bindRelatedConversation: () => {},
     openURL: () => {},
     closeUI: () => {},

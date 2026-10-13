@@ -28,6 +28,8 @@ export default function AIChatContextsProvider(props: {
       updateSelectedConversationId: () => {},
       openMainConversation: () => {},
       createNewConversation: () => {},
+      // The NTP has no conversation list, so no workspaces to start from.
+      createNewConversationWithWorkspace: () => {},
       isMainConversation: false,
     }
   }, [])

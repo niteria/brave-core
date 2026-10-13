@@ -344,9 +344,10 @@ export function useProvideConversationContext(props: ConversationContextProps) {
     const newContentId = aiChat.defaultTabContentId
     if (prevContentId === newContentId) return
 
-    // Clear all staged content (not yet committed to a conversation turn).
+    // Clear all staged content (not yet committed to a conversation turn),
+    // except workspaces, which aren't related to the tab.
     for (const content of conversationState.associatedContent.filter(
-      (c) => !c.conversationTurnUuid,
+      (c) => !c.conversationTurnUuid && !isWorkspaceContent(c),
     )) {
       aiChat.api.uiHandler.disassociateContent(
         content,

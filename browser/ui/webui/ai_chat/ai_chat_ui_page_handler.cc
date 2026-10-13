@@ -29,6 +29,7 @@
 #include "brave/components/ai_chat/content/browser/associated_url_content.h"
 #include "brave/components/ai_chat/content/browser/workspace_associated_content.h"
 #include "brave/components/ai_chat/core/browser/ai_chat_service.h"
+#include "brave/components/ai_chat/core/browser/associated_content_manager.h"
 #include "brave/components/ai_chat/core/browser/constants.h"
 #include "brave/components/ai_chat/core/browser/utils.h"
 #include "brave/components/ai_chat/core/common/ai_chat_urls.h"
@@ -469,6 +470,46 @@ void AIChatUIPageHandler::OpenWorkspaceFile(const GURL& workspace_url,
   // and open the file in a tab in its place, as for other links.
   ai_chat::MaybeMoveFullPageChatToSidePanel(owner_web_contents_);
   OpenURLInNewTab(*file_url);
+}
+
+void AIChatUIPageHandler::AttachExistingWorkspace(
+    const std::string& conversation_uuid,
+    const GURL& workspace_url) {
+  if (!base::FeatureList::IsEnabled(features::kAIChatWorkspaceTools) ||
+      !owner_web_contents_) {
+    return;
+  }
+  auto* context = owner_web_contents_->GetBrowserContext();
+  auto* service = AIChatServiceFactory::GetForBrowserContext(context);
+  auto* conversation =
+      service ? service->GetConversation(conversation_uuid) : nullptr;
+  if (!conversation) {
+    return;
+  }
+
+  // A conversation only needs one workspace, and a second would register file
+  // tools with the same names as the first.
+  AssociatedContentManager* manager =
+      conversation->associated_content_manager();
+  if (std::ranges::any_of(
+          manager->GetAssociatedContent(), [](const auto& content) {
+            return content->content_type == mojom::ContentType::Workspace;
+          })) {
+    return;
+  }
+
+  // The workspace keeps its folder in its origin's storage, so opening it again
+  // gives this conversation the same folder. It's attached with its own content
+  // uuid, as content uuids are unique across conversations.
+  auto workspace = ai_chat::WorkspaceAssociatedContent::CreateFromUrl(
+      workspace_url, /*content_uuid=*/std::nullopt, context,
+      base::BindOnce(&brave::AttachPrivacySensitiveTabHelpers));
+  if (!workspace) {
+    return;
+  }
+  // As in OnWorkspaceFolderChosen, attach directly via the manager, as
+  // workspace:// URLs aren't in |kAllowedContentSchemes|.
+  manager->AddOwnedContent(std::move(workspace));
 }
 
 void AIChatUIPageHandler::OpenAIChatSettings() {

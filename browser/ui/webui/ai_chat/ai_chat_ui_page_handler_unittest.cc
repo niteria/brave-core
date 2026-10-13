@@ -411,6 +411,86 @@ TEST_F(AIChatUIPageHandlerWorkspaceTest,
   EXPECT_EQ(std::nullopt, future.Get());
 }
 
+constexpr char kWorkspaceUrl[] =
+    "workspace://1b4e28ba-2fa1-41d2-883f-0016d3cca427";
+
+TEST_F(AIChatUIPageHandlerTest, AttachExistingWorkspace_FeatureDisabled) {
+  auto* conversation = service()->CreateConversation();
+  ASSERT_TRUE(conversation);
+
+  page_handler()->AttachExistingWorkspace(conversation->get_conversation_uuid(),
+                                          GURL(kWorkspaceUrl));
+
+  EXPECT_TRUE(conversation->associated_content_manager()
+                  ->GetAssociatedContent()
+                  .empty());
+}
+
+// The workspace is attached as the same workspace (its URL), but with its own
+// content uuid, so it doesn't clash with its attachments to other
+// conversations.
+TEST_F(AIChatUIPageHandlerWorkspaceTest,
+       AttachExistingWorkspace_AttachesWorkspace) {
+  auto* conversation = service()->CreateConversation();
+  ASSERT_TRUE(conversation);
+
+  page_handler()->AttachExistingWorkspace(conversation->get_conversation_uuid(),
+                                          GURL(kWorkspaceUrl));
+
+  auto associated_content =
+      conversation->associated_content_manager()->GetAssociatedContent();
+  ASSERT_EQ(1u, associated_content.size());
+  EXPECT_EQ(mojom::ContentType::Workspace, associated_content[0]->content_type);
+  EXPECT_EQ(GURL(kWorkspaceUrl), associated_content[0]->url);
+  EXPECT_NE("1b4e28ba-2fa1-41d2-883f-0016d3cca427",
+            associated_content[0]->uuid);
+  // Staged, until it's sent with the conversation's first message.
+  EXPECT_FALSE(associated_content[0]->conversation_turn_uuid);
+
+  // Drop the workspace page's WebContents, as in
+  // ShowWorkspaceFolderPicker_AttachesWorkspaceContent.
+  page_handler()->DisassociateContent(std::move(associated_content[0]),
+                                      conversation->get_conversation_uuid());
+}
+
+TEST_F(AIChatUIPageHandlerWorkspaceTest,
+       AttachExistingWorkspace_KeepsExistingWorkspace) {
+  auto* conversation = service()->CreateConversation();
+  ASSERT_TRUE(conversation);
+  page_handler()->AttachExistingWorkspace(conversation->get_conversation_uuid(),
+                                          GURL(kWorkspaceUrl));
+
+  // A conversation only has one workspace.
+  page_handler()->AttachExistingWorkspace(
+      conversation->get_conversation_uuid(),
+      GURL("workspace://9a8b7c6d-1234-4abc-8def-0123456789ab"));
+
+  auto associated_content =
+      conversation->associated_content_manager()->GetAssociatedContent();
+  ASSERT_EQ(1u, associated_content.size());
+  EXPECT_EQ(GURL(kWorkspaceUrl), associated_content[0]->url);
+
+  page_handler()->DisassociateContent(std::move(associated_content[0]),
+                                      conversation->get_conversation_uuid());
+}
+
+// Invalid URLs are covered by CreateFromUrlRejectsInvalidUrls.
+TEST_F(AIChatUIPageHandlerWorkspaceTest,
+       AttachExistingWorkspace_IgnoresInvalidRequests) {
+  auto* conversation = service()->CreateConversation();
+  ASSERT_TRUE(conversation);
+
+  page_handler()->AttachExistingWorkspace(conversation->get_conversation_uuid(),
+                                          GURL("https://example.com"));
+  // Should not crash.
+  page_handler()->AttachExistingWorkspace("non-existent-uuid",
+                                          GURL(kWorkspaceUrl));
+
+  EXPECT_TRUE(conversation->associated_content_manager()
+                  ->GetAssociatedContent()
+                  .empty());
+}
+
 TEST_F(AIChatUIPageHandlerTest, ProcessImageFile) {
   data_decoder::test::InProcessDataDecoder data_decoder;
 

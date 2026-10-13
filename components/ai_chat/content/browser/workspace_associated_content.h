@@ -33,10 +33,12 @@ class WebContents;
 namespace ai_chat {
 
 // Associated content backed by a hidden, headless
-// chrome-untrusted://<uuid>.leo-workspace page, where the uuid is this
-// delegate's own, giving each workspace its own origin. The content is
-// identified (and stored) by workspace://<uuid>, its |url()|, which is never
-// loaded. The page holds a
+// chrome-untrusted://<uuid>.leo-workspace page, giving each workspace its own
+// origin. The content is identified (and stored) by workspace://<uuid>, its
+// |url()|, which is never loaded. A workspace can be attached to several
+// conversations, each with its own delegate (and content uuid) for it, so the
+// workspace's uuid is only the delegate's own for the conversation that created
+// it. The page holds a
 // FileSystemDirectoryHandle for a user-picked folder (delivered by the browser
 // via launchQueue) and registers the local file tools with Leo via WebMCP
 // (document.modelContext). This delegate owns the background WebContents, so
@@ -59,10 +61,15 @@ class WorkspaceAssociatedContent : public AssociatedContentDelegate,
   WorkspaceAssociatedContent& operator=(const WorkspaceAssociatedContent&) =
       delete;
 
-  // Restores a workspace from its workspace://<uuid> URL. Returns nullptr if
-  // |url| is not a valid workspace URL.
+  // Opens an existing workspace from its workspace://<uuid> URL, e.g. to
+  // restore it with a conversation, or to attach it to another conversation.
+  // Several conversations can share a workspace, so |content_uuid| identifies
+  // this attachment of it (as stored with the conversation), rather than the
+  // workspace; a new one is generated if it's null. Returns nullptr if |url| is
+  // not a valid workspace URL.
   static std::unique_ptr<WorkspaceAssociatedContent> CreateFromUrl(
       GURL url,
+      std::optional<std::string> content_uuid,
       content::BrowserContext* browser_context,
       base::OnceCallback<void(content::WebContents*)> attach_tab_helpers);
 
@@ -89,8 +96,14 @@ class WorkspaceAssociatedContent : public AssociatedContentDelegate,
   }
 
  private:
-  // Sets up the identity of the workspace with |uuid|, without loading it.
+  // Sets up the identity of a new workspace with |uuid|, which is also the uuid
+  // of its first attachment, without loading it.
   explicit WorkspaceAssociatedContent(std::string uuid);
+
+  // Sets up the identity of the workspace with |workspace_uuid|, attached as
+  // |content_uuid|, without loading it.
+  WorkspaceAssociatedContent(std::string_view workspace_uuid,
+                             std::string content_uuid);
 
   // Creates the hidden WebContents and loads |page_url_| in it.
   void AttachWebContents(

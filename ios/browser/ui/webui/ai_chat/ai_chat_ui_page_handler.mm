@@ -248,6 +248,13 @@ void AIChatUIPageHandler::OpenWorkspaceFile(const GURL& workspace_url,
   NOTIMPLEMENTED();
 }
 
+void AIChatUIPageHandler::AttachExistingWorkspace(
+    const std::string& conversation_uuid,
+    const GURL& workspace_url) {
+  // Workspaces aren't supported on iOS, see ShowWorkspaceFolderPicker.
+  NOTIMPLEMENTED();
+}
+
 void AIChatUIPageHandler::OpenAIChatSettings() {
   id<AIChatUIHandlerBridge> bridge =
       UIHandlerBridgeHolder::FromWebState(owner_web_state_)->bridge();

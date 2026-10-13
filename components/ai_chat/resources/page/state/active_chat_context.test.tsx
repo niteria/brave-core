@@ -56,6 +56,7 @@ interface RenderOptions {
   selectedConversationId: string | undefined
   isGlobalPanel: boolean
   updateSelectedConversationId?: jest.Mock
+  attachExistingWorkspace?: jest.Mock
 }
 
 const renderProvider = async (opts: RenderOptions) => {
@@ -72,7 +73,12 @@ const renderProvider = async (opts: RenderOptions) => {
   }
 
   const tree = (selectedConversationId: string | undefined) => (
-    <MockContext aiChatOverrides={{ isGlobalPanel: opts.isGlobalPanel }}>
+    <MockContext
+      aiChatOverrides={{ isGlobalPanel: opts.isGlobalPanel }}
+      uiHandler={{
+        attachExistingWorkspace: opts.attachExistingWorkspace ?? jest.fn(),
+      }}
+    >
       <ActiveChatProvider
         selectedConversationId={selectedConversationId}
         updateSelectedConversationId={updateSelectedConversationId}
@@ -344,5 +350,89 @@ describe('ActiveChatProvider routing — sidebar (non-global panel) mode', () =>
     expect(() => detailsRef.current!.openMainConversation()).toThrow(
       'No main conversation!',
     )
+  })
+})
+
+describe('ActiveChatProvider createNewConversationWithWorkspace', () => {
+  const workspaceUrl = {
+    url: 'workspace://1b4e28ba-2fa1-41d2-883f-0016d3cca427',
+  }
+
+  // Lets getState.fetch() resolve for the newly bound conversation.
+  const flush = async () => {
+    await act(async () => {
+      await Promise.resolve()
+    })
+  }
+
+  it('attaches the workspace to the conversation bound on navigating to "/"', async () => {
+    const attachExistingWorkspace = jest.fn()
+    const { detailsRef, setSelectedConversationId } = await renderProvider({
+      isGlobalPanel: false,
+      selectedConversationId: 'standalone-uuid',
+      attachExistingWorkspace,
+    })
+
+    act(() => {
+      detailsRef.current!.createNewConversationWithWorkspace(workspaceUrl)
+    })
+    await flush()
+
+    // Nothing is attached to the conversation being navigated away from.
+    expect(window.location.pathname).toBe('/')
+    expect(attachExistingWorkspace).not.toHaveBeenCalled()
+
+    // The route change binds the new conversation, which gets the workspace.
+    await setSelectedConversationId(undefined)
+    await flush()
+
+    expect(mockedBind.newConversation).toHaveBeenCalledTimes(1)
+    expect(attachExistingWorkspace).toHaveBeenCalledTimes(1)
+    expect(attachExistingWorkspace).toHaveBeenCalledWith('new-0', workspaceUrl)
+  })
+
+  it('binds another new conversation when already on a new one at "/"', async () => {
+    const attachExistingWorkspace = jest.fn()
+    const { detailsRef } = await renderProvider({
+      isGlobalPanel: false,
+      selectedConversationId: undefined,
+      attachExistingWorkspace,
+    })
+    expect(mockedBind.newConversation).toHaveBeenCalledTimes(1)
+
+    act(() => {
+      detailsRef.current!.createNewConversationWithWorkspace(workspaceUrl)
+    })
+    await flush()
+
+    // The workspace goes to a new conversation, not the current 'new-0',
+    // which might already have content staged.
+    expect(mockedBind.newConversation).toHaveBeenCalledTimes(2)
+    expect(attachExistingWorkspace).toHaveBeenCalledTimes(1)
+    expect(attachExistingWorkspace).toHaveBeenCalledWith('new-1', workspaceUrl)
+  })
+
+  it('only attaches the workspace to the latest of several new bindings', async () => {
+    const attachExistingWorkspace = jest.fn()
+    const { detailsRef, setSelectedConversationId } = await renderProvider({
+      isGlobalPanel: true,
+      selectedConversationId: undefined,
+      attachExistingWorkspace,
+    })
+    // On the global main conversation at its own URL.
+    await setSelectedConversationId('new-0')
+    mockedBind.newConversation.mockClear()
+
+    // On the main conversation this binds a new conversation, then navigates
+    // to "/", which binds another.
+    act(() => {
+      detailsRef.current!.createNewConversationWithWorkspace(workspaceUrl)
+    })
+    await setSelectedConversationId(undefined)
+    await flush()
+
+    expect(mockedBind.newConversation).toHaveBeenCalledTimes(2)
+    expect(attachExistingWorkspace).toHaveBeenCalledTimes(1)
+    expect(attachExistingWorkspace).toHaveBeenCalledWith('new-2', workspaceUrl)
   })
 })

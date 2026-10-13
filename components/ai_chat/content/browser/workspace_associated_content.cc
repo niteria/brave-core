@@ -103,20 +103,23 @@ WorkspaceAssociatedContent::~WorkspaceAssociatedContent() = default;
 std::unique_ptr<WorkspaceAssociatedContent>
 WorkspaceAssociatedContent::CreateFromUrl(
     GURL url,
+    std::optional<std::string> content_uuid,
     content::BrowserContext* browser_context,
     base::OnceCallback<void(content::WebContents*)> attach_tab_helpers) {
   // The FileSystemDirectoryHandle is restored from IndexedDB by the page.
-  std::optional<std::string> uuid = ParseWorkspaceUrl(url);
-  if (!uuid) {
+  std::optional<std::string> workspace_uuid = ParseWorkspaceUrl(url);
+  if (!workspace_uuid) {
     DVLOG(1) << "Invalid workspace URL: " << url.spec();
     return nullptr;
   }
 
-  DVLOG(2) << __func__ << " restoring workspace " << url.spec();
+  DVLOG(2) << __func__ << " opening workspace " << url.spec();
 
   // WrapUnique, as the constructor is private.
-  auto content =
-      base::WrapUnique(new WorkspaceAssociatedContent(std::move(*uuid)));
+  auto content = base::WrapUnique(new WorkspaceAssociatedContent(
+      *workspace_uuid,
+      content_uuid ? std::move(*content_uuid)
+                   : base::Uuid::GenerateRandomV4().AsLowercaseString()));
   content->AttachWebContents(browser_context, std::move(attach_tab_helpers));
   return content;
 }
@@ -184,11 +187,16 @@ url::Origin WorkspaceAssociatedContent::GetOrigin() const {
 }
 
 WorkspaceAssociatedContent::WorkspaceAssociatedContent(std::string uuid)
-    : page_url_(BuildPageUrl(uuid)) {
+    : WorkspaceAssociatedContent(uuid, uuid) {}
+
+WorkspaceAssociatedContent::WorkspaceAssociatedContent(
+    std::string_view workspace_uuid,
+    std::string content_uuid)
+    : page_url_(BuildPageUrl(workspace_uuid)) {
   CHECK(page_url_.is_valid());
-  set_url(BuildWorkspaceUrl(uuid));
+  set_url(BuildWorkspaceUrl(workspace_uuid));
   CHECK(url().is_valid());
-  set_uuid(std::move(uuid));
+  set_uuid(std::move(content_uuid));
 }
 
 void WorkspaceAssociatedContent::AttachWebContents(
