@@ -5811,6 +5811,56 @@ TEST_F(ConversationHandlerUnitTest, VisionModelSwitch_SendWithoutImages) {
             history_future.Get()[0]->uuid);
 }
 
+class ConversationHandlerUnitTest_NoVisionDefaultModel
+    : public ConversationHandlerUnitTest {
+ public:
+  ConversationHandlerUnitTest_NoVisionDefaultModel() {
+    scoped_feature_list_.InitAndEnableFeatureWithParameters(
+        features::kAIChat,
+        {{features::kAIModelsVisionDefaultKey.name, "missing-model"},
+         {features::kAIModelsPremiumVisionDefaultKey.name, "missing-model"}});
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+// Without a vision model to offer, the UI has no dialog to show, so the
+// submission goes without its images instead of waiting.
+TEST_F(ConversationHandlerUnitTest_NoVisionDefaultModel, SendsWithoutImages) {
+  conversation_handler_->associated_content_manager()->ClearContent();
+  NiceMock<MockConversationHandlerClient> client(conversation_handler_.get());
+  MockEngineConsumer* engine =
+      ChangeModelAndMockEngine(client, kNonVisionModelKey);
+
+  base::RunLoop loop;
+  EXPECT_CALL(client, OnVisionModelSwitchChanged).Times(0);
+  EXPECT_CALL(client, OnModelDataChanged).Times(0);
+  EXPECT_CALL(*engine, GenerateAssistantResponse)
+      .WillOnce(testing::WithArgs<1, 7>(
+          [](const EngineConsumer::ConversationHistoryView& history,
+             EngineConsumer::GenerationCompletedCallback done_callback) {
+            ASSERT_EQ(history.size(), 1u);
+            EXPECT_FALSE(history[0]->uploaded_files);
+            std::move(done_callback)
+                .Run(EngineConsumer::GenerationResultData(
+                    mojom::ConversationEntryEvent::NewCompletionEvent(
+                        mojom::CompletionEvent::New("No image")),
+                    std::nullopt));
+          }));
+  EXPECT_CALL(client, OnAPIRequestInProgress(true)).Times(testing::AnyNumber());
+  EXPECT_CALL(client, OnAPIRequestInProgress(false))
+      .WillOnce(testing::InvokeWithoutArgs(&loop, &base::RunLoop::Quit));
+  conversation_handler_->SubmitHumanConversationEntry(
+      "What is this?",
+      CreateSampleUploadedFiles(1, mojom::UploadedFileType::kImage));
+  loop.Run();
+
+  EXPECT_EQ(conversation_handler_->GetCurrentModel().key, kNonVisionModelKey);
+  EXPECT_EQ(conversation_handler_->GetConversationHistorySize(), 2u);
+  EXPECT_FALSE(GetState()->vision_model_switch_key);
+}
+
 TEST_F(ConversationHandlerUnitTest, VisionModelSwitch_Cancel) {
   conversation_handler_->associated_content_manager()->ClearContent();
   NiceMock<MockConversationHandlerClient> client(conversation_handler_.get());

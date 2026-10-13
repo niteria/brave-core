@@ -626,7 +626,8 @@ class ConversationHandler : public mojom::ConversationHandler,
   // Asks the user whether to switch to the vision-default model before
   // sending images the current model can't read. Either |turn| is the
   // submission held back from history, or |resume| continues a submission
-  // already in history.
+  // already in history. Without a vision-default model to offer, sends
+  // without the images instead.
   void RequestVisionModelSwitch(
       mojom::ConversationTurnPtr turn,
       base::OnceCallback<void(bool send_images)> resume);

@@ -162,6 +162,16 @@ bool HasUploadedImageOrScreenshot(
   return std::ranges::any_of(*uploaded_files, &IsImageOrScreenshot);
 }
 
+void RemoveUploadedImagesAndScreenshots(mojom::ConversationTurn& turn) {
+  if (!turn.uploaded_files) {
+    return;
+  }
+  std::erase_if(*turn.uploaded_files, &IsImageOrScreenshot);
+  if (turn.uploaded_files->empty()) {
+    turn.uploaded_files.reset();
+  }
+}
+
 }  // namespace
 
 ConversationHandler::Suggestion::Suggestion(std::string title)
@@ -1315,10 +1325,7 @@ void ConversationHandler::RespondToVisionModelSwitch(
   }
 
   if (!send_images) {
-    std::erase_if(*turn->uploaded_files, &IsImageOrScreenshot);
-    if (turn->uploaded_files->empty()) {
-      turn->uploaded_files.reset();
-    }
+    RemoveUploadedImagesAndScreenshots(*turn);
   }
   CommitHumanConversationEntry(std::move(turn));
 }
@@ -3117,12 +3124,25 @@ void ConversationHandler::RequestVisionModelSwitch(
     mojom::ConversationTurnPtr turn,
     base::OnceCallback<void(bool send_images)> resume) {
   DCHECK(!vision_model_switch_key_);
+  const std::string model_key = GetVisionDefaultModelKey();
+  const mojom::Model* model = model_service_->GetModel(model_key);
+  if (!model || !model->vision_support) {
+    // There is no model to offer, so send without the images.
+    if (turn) {
+      RemoveUploadedImagesAndScreenshots(*turn);
+      CommitHumanConversationEntry(std::move(turn));
+    } else {
+      std::move(resume).Run(/*send_images=*/false);
+    }
+    return;
+  }
+
   // The UI shows the held turn and later merges the committed one into it by
   // uuid.
   if (turn && !turn->uuid) {
     turn->uuid = base::Uuid::GenerateRandomV4().AsLowercaseString();
   }
-  vision_model_switch_key_ = GetVisionDefaultModelKey();
+  vision_model_switch_key_ = model_key;
   vision_model_switch_turn_ = std::move(turn);
   vision_model_switch_resume_ = std::move(resume);
   OnVisionModelSwitchChanged();
