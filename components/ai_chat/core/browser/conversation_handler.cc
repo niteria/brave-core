@@ -2204,11 +2204,20 @@ void ConversationHandler::OnGeneratePageContentComplete(
         });
 
     // Only take screenshots if no screenshots have been taken yet
-    if (!has_screenshots && !HasDeclinedAutoScreenshots()) {
-      associated_content_manager_->GetScreenshots(
-          base::BindOnce(&ConversationHandler::OnAutoScreenshotsTaken,
+    if (!has_screenshots) {
+      if (!DoAutoScreenshotsNeedVisionModel()) {
+        TakeAutoScreenshots(std::move(callback));
+        return;
+      }
+      // Ask before taking screenshots for a model that can't read them,
+      // unless the user already chose to go without.
+      if (!auto_screenshots_declined_) {
+        RequestVisionModelSwitch(
+            nullptr, base::BindOnce(
+                         &ConversationHandler::OnAutoScreenshotsDecided,
                          weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
-      return;
+        return;
+      }
     }
   }
 
@@ -3114,12 +3123,6 @@ bool ConversationHandler::CanModelForTurnReadImages(
   return (model ? *model : GetCurrentModel()).vision_support;
 }
 
-bool ConversationHandler::HasDeclinedAutoScreenshots() {
-  return auto_screenshots_declined_ && !chat_history_.empty() &&
-         chat_history_.back()->character_type == mojom::CharacterType::HUMAN &&
-         !CanModelForTurnReadImages(*chat_history_.back());
-}
-
 void ConversationHandler::RequestVisionModelSwitch(
     mojom::ConversationTurnPtr turn,
     base::OnceCallback<void(bool send_images)> resume) {
@@ -3167,6 +3170,30 @@ void ConversationHandler::OnVisionModelSwitchChanged() {
   }
 }
 
+bool ConversationHandler::DoAutoScreenshotsNeedVisionModel() {
+  // Screenshots join the human entry being answered. Other page content
+  // requests, such as for suggested questions, don't send them.
+  return is_request_in_progress_ && !chat_history_.empty() &&
+         chat_history_.back()->character_type == mojom::CharacterType::HUMAN &&
+         !CanModelForTurnReadImages(*chat_history_.back());
+}
+
+void ConversationHandler::TakeAutoScreenshots(base::OnceClosure callback) {
+  associated_content_manager_->GetScreenshots(
+      base::BindOnce(&ConversationHandler::OnAutoScreenshotsTaken,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+}
+
+void ConversationHandler::OnAutoScreenshotsDecided(base::OnceClosure callback,
+                                                   bool send_images) {
+  if (send_images) {
+    TakeAutoScreenshots(std::move(callback));
+    return;
+  }
+  std::move(callback).Run();
+  OnAssociatedContentUpdated();
+}
+
 void ConversationHandler::OnAutoScreenshotsTaken(
     base::OnceClosure callback,
     std::optional<std::vector<mojom::UploadedFilePtr>> screenshots) {
@@ -3196,54 +3223,25 @@ void ConversationHandler::OnAutoScreenshotsTaken(
                << ", Discarded: " << discarded_count;
     }
 
-    // The screenshots join the human entry being answered, so ask before
-    // sending them to a model that can't read them.
-    if (is_request_in_progress_ && !chat_history_.empty() &&
-        chat_history_.back()->character_type == mojom::CharacterType::HUMAN &&
-        !CanModelForTurnReadImages(*chat_history_.back())) {
-      RequestVisionModelSwitch(
-          nullptr, base::BindOnce(&ConversationHandler::AttachAutoScreenshots,
-                                  weak_ptr_factory_.GetWeakPtr(),
-                                  std::move(callback), std::move(*screenshots),
-                                  calculated_visual_percentage));
-      return;
+    // Update the last conversation turn with the uploaded files
+    if (!chat_history_.empty() &&
+        chat_history_.back()->character_type == mojom::CharacterType::HUMAN) {
+      // Append screenshots to existing uploaded files instead of replacing them
+      if (!chat_history_.back()->uploaded_files) {
+        chat_history_.back()->uploaded_files.emplace();
+      }
+      chat_history_.back()->uploaded_files->insert(
+          chat_history_.back()->uploaded_files->end(),
+          std::make_move_iterator(screenshots->begin()),
+          std::make_move_iterator(screenshots->end()));
+      // Notify UI about the updated conversation turn
+      OnHistoryUpdate(chat_history_.back().Clone());
     }
-  }
-
-  AttachAutoScreenshots(std::move(callback),
-                        screenshots ? std::move(*screenshots)
-                                    : std::vector<mojom::UploadedFilePtr>(),
-                        calculated_visual_percentage, /*send_images=*/true);
-}
-
-void ConversationHandler::AttachAutoScreenshots(
-    base::OnceClosure callback,
-    std::vector<mojom::UploadedFilePtr> screenshots,
-    std::optional<uint32_t> visual_content_used_percentage,
-    bool send_images) {
-  if (!send_images) {
-    screenshots.clear();
-    visual_content_used_percentage = std::nullopt;
-  }
-
-  // Update the last conversation turn with the uploaded files
-  if (!screenshots.empty() && !chat_history_.empty() &&
-      chat_history_.back()->character_type == mojom::CharacterType::HUMAN) {
-    // Append screenshots to existing uploaded files instead of replacing them
-    if (!chat_history_.back()->uploaded_files) {
-      chat_history_.back()->uploaded_files.emplace();
-    }
-    chat_history_.back()->uploaded_files->insert(
-        chat_history_.back()->uploaded_files->end(),
-        std::make_move_iterator(screenshots.begin()),
-        std::make_move_iterator(screenshots.end()));
-    // Notify UI about the updated conversation turn
-    OnHistoryUpdate(chat_history_.back().Clone());
   }
 
   // Store the calculated visual content percentage for UI display
   const auto old = visual_content_used_percentage_;
-  visual_content_used_percentage_ = visual_content_used_percentage;
+  visual_content_used_percentage_ = calculated_visual_percentage;
 
   // Trigger UI state update only when visual content percentage has changed
   if (old != visual_content_used_percentage_) {

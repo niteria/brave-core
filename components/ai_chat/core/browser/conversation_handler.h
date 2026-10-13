@@ -530,13 +530,13 @@ class ConversationHandler : public mojom::ConversationHandler,
   void OnAutoScreenshotsTaken(
       base::OnceClosure callback,
       std::optional<std::vector<mojom::UploadedFilePtr>> screenshots);
-  // Adds |screenshots| to the last human entry, unless |send_images| is false,
-  // then runs |callback|.
-  void AttachAutoScreenshots(
-      base::OnceClosure callback,
-      std::vector<mojom::UploadedFilePtr> screenshots,
-      std::optional<uint32_t> visual_content_used_percentage,
-      bool send_images);
+  // Whether automatic screenshots would go with a submission to a model that
+  // can't read them.
+  bool DoAutoScreenshotsNeedVisionModel();
+  void TakeAutoScreenshots(base::OnceClosure callback);
+  // Takes automatic screenshots, unless |send_images| is false, then runs
+  // |callback|.
+  void OnAutoScreenshotsDecided(base::OnceClosure callback, bool send_images);
 
   void OnEngineCompletionDataReceived(
       const std::optional<std::string>& thread_uuid,
@@ -615,10 +615,6 @@ class ConversationHandler : public mojom::ConversationHandler,
 
   // Whether the model that will answer |turn| can read images.
   bool CanModelForTurnReadImages(const mojom::ConversationTurn& turn);
-
-  // Whether the user chose to send without automatic screenshots and the
-  // model answering the last human entry still can't read them.
-  bool HasDeclinedAutoScreenshots();
 
   // Adds the submitted human entry |turn| to history and starts generation.
   void CommitHumanConversationEntry(mojom::ConversationTurnPtr turn);

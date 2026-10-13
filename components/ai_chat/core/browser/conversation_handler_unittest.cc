@@ -5638,11 +5638,8 @@ TEST_F(ConversationHandlerUnitTest, VisionModelSwitchOnScreenshots) {
   // Mock associated content to return empty text content
   associated_content_->SetTextContent("");
 
-  // Mock GetScreenshots to return sample screenshots
-  std::vector<mojom::UploadedFilePtr> mock_screenshots =
-      CreateSampleUploadedFiles(1, mojom::UploadedFileType::kScreenshot);
-  EXPECT_CALL(*associated_content_, GetScreenshots)
-      .WillOnce(base::test::RunOnceCallback<0>(Clone(mock_screenshots)));
+  // Nothing is captured before the user decides.
+  EXPECT_CALL(*associated_content_, GetScreenshots).Times(0);
 
   base::RunLoop prompt_loop;
   EXPECT_CALL(client, OnModelDataChanged).Times(0);
@@ -5654,13 +5651,19 @@ TEST_F(ConversationHandlerUnitTest, VisionModelSwitchOnScreenshots) {
   prompt_loop.Run();
   testing::Mock::VerifyAndClearExpectations(&client);
   testing::Mock::VerifyAndClearExpectations(engine);
+  testing::Mock::VerifyAndClearExpectations(associated_content_.get());
 
-  // The screenshots wait with the decision.
   ASSERT_EQ(conversation_handler_->GetConversationHistorySize(), 1u);
   EXPECT_FALSE(
       conversation_handler_->GetConversationHistory()[0]->uploaded_files);
   EXPECT_TRUE(conversation_handler_->IsRequestInProgress());
   EXPECT_TRUE(GetState()->vision_model_switch_key);
+
+  // Mock GetScreenshots to return sample screenshots
+  std::vector<mojom::UploadedFilePtr> mock_screenshots =
+      CreateSampleUploadedFiles(1, mojom::UploadedFileType::kScreenshot);
+  EXPECT_CALL(*associated_content_, GetScreenshots)
+      .WillOnce(base::test::RunOnceCallback<0>(Clone(mock_screenshots)));
 
   base::RunLoop switch_loop;
   EXPECT_CALL(client, OnVisionModelSwitchChanged(testing::Eq(std::nullopt)));
@@ -5691,9 +5694,7 @@ TEST_F(ConversationHandlerUnitTest,
       ChangeModelAndMockEngine(client, kNonVisionModelKey);
 
   associated_content_->SetTextContent("");
-  EXPECT_CALL(*associated_content_, GetScreenshots)
-      .WillOnce(base::test::RunOnceCallback<0>(
-          CreateSampleUploadedFiles(1, mojom::UploadedFileType::kScreenshot)));
+  EXPECT_CALL(*associated_content_, GetScreenshots).Times(0);
 
   base::RunLoop prompt_loop;
   EXPECT_CALL(client, OnVisionModelSwitchChanged(testing::Optional(_)))
