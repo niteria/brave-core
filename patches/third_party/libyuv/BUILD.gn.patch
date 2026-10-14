@@ -1,0 +1,27 @@
+diff --git a/BUILD.gn b/BUILD.gn
+index ab491242a40ebe6bbb3c70de0a965532596d22fb..675f415b674e902e4274db6244abedaeeb84605a 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -250,8 +250,8 @@ if (libyuv_use_sve) {
+     # The -march arguments below are incompatible with libc++ modules.
+     use_libcxx_modules = false
+ 
+-    # SVE2 is an Armv9-A feature.
+-    cflags = [ "-march=armv9-a+i8mm+sve2" ]
++    # SVE2 is an Armv9-A feature, but use Armv8.5-A for compatibility.
++    cflags = [ "-march=armv8.5-a+i8mm+sve2" ]
+   }
+ }
+ 
+@@ -270,8 +270,9 @@ if (libyuv_use_sme) {
+     # The -march arguments below are incompatible with libc++ modules.
+     use_libcxx_modules = false
+ 
+-    # SME is an Armv9-A feature.
+-    cflags = [ "-march=armv9-a+i8mm+sme" ]
++    # SME is an Armv9-A feature, but use Armv8.5-A for compatibility with
++    # processors like Apple M4/M5 that support SME without SVE.
++    cflags = [ "-march=armv8.5-a+i8mm+sme" ]
+   }
+ }
+ 
