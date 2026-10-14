@@ -1,0 +1,12 @@
+diff --git a/chrome/browser/ui/views/tab_contents/BUILD.gn b/chrome/browser/ui/views/tab_contents/BUILD.gn
+index 106557a36e832dd6f2c95b3c19b149680199c2f7..24727b333badef839a738f03edd8e76c391e537e 100644
+--- a/chrome/browser/ui/views/tab_contents/BUILD.gn
++++ b/chrome/browser/ui/views/tab_contents/BUILD.gn
+@@ -57,6 +57,7 @@ source_set("tab_contents") {
+       "//ui/base/clipboard",
+     ]
+     deps += [
++      "//brave/browser/ui:ui",
+       "//chrome/browser/renderer_host:delegate",
+       "//chrome/browser/ui:ui_features",
+       "//chrome/browser/ui/browser_window",
